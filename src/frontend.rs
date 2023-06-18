@@ -15,8 +15,10 @@ pub enum Expr {
     Div(Box<Expr>, Box<Expr>),
     IfElse(Box<Expr>, Vec<Expr>, Vec<Expr>),
     WhileLoop(Box<Expr>, Vec<Expr>),
+    TryCatch(Vec<Expr>, String, Vec<Expr>),
     Call(String, Vec<Expr>),
     GlobalDataAddr(String),
+    Throw(Box<Expr>),
 }
 
 peg::parser!(pub grammar parser() for str {
@@ -37,8 +39,10 @@ peg::parser!(pub grammar parser() for str {
         = _ e:expression() _ "\n" { e }
 
     rule expression() -> Expr
-        = if_else()
+        = throw()
+        / if_else()
         / while_loop()
+        / try_catch()
         / assignment()
         / binary_op()
 
@@ -52,6 +56,12 @@ peg::parser!(pub grammar parser() for str {
         = "while" _ e:expression() _ "{" _ "\n"
         loop_body:statements() _ "}"
         { Expr::WhileLoop(Box::new(e), loop_body) }
+
+    rule try_catch() -> Expr
+        = "try" _ "{" _ "\n"
+        try_body:statements() _ "}" _ "catch" _ exception:identifier() _ "{" _ "\n"
+        catch_body:statements() _ "}"
+        { Expr::TryCatch(try_body, exception, catch_body) }
 
     rule assignment() -> Expr
         = i:identifier() _ "=" _ e:expression() {Expr::Assign(i, Box::new(e))}
@@ -74,6 +84,8 @@ peg::parser!(pub grammar parser() for str {
         i:identifier() { Expr::Identifier(i) }
         l:literal() { l }
     }
+
+    rule throw() -> Expr = "throw" _ e:expression() {Expr::Throw(Box::new(e))}
 
     rule identifier() -> String
         = quiet!{ n:$(['a'..='z' | 'A'..='Z' | '_']['a'..='z' | 'A'..='Z' | '0'..='9' | '_']*) { n.to_owned() } }

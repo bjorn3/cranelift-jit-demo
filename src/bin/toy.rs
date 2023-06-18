@@ -1,20 +1,26 @@
 use core::mem;
 use cranelift_jit_demo::jit;
 
-fn main() -> Result<(), String> {
-    // Create the JIT instance, which manages all generated functions and data.
-    let mut jit = jit::JIT::default();
-    println!("the answer is: {}", run_foo(&mut jit)?);
-    println!(
-        "recursive_fib(10) = {}",
-        run_recursive_fib_code(&mut jit, 10)?
-    );
-    println!(
-        "iterative_fib(10) = {}",
-        run_iterative_fib_code(&mut jit, 10)?
-    );
-    run_hello(&mut jit)?;
-    Ok(())
+fn main() {
+    match (|| {
+        // Create the JIT instance, which manages all generated functions and data.
+        let mut jit = jit::JIT::default();
+        println!("the answer is: {}", run_foo(&mut jit)?);
+        println!(
+            "recursive_fib(10) = {}",
+            run_recursive_fib_code(&mut jit, 10)?
+        );
+        println!(
+            "iterative_fib(10) = {}",
+            run_iterative_fib_code(&mut jit, 10)?
+        );
+        println!("try_catch(1) = {}", run_try_catch(&mut jit, 1)?);
+        run_hello(&mut jit)?;
+        Ok::<(), String>(())
+    })() {
+        Ok(()) => {}
+        Err(err) => println!("Error: {err}"),
+    }
 }
 
 fn run_foo(jit: &mut jit::JIT) -> Result<isize, String> {
@@ -27,6 +33,11 @@ fn run_recursive_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize, Str
 
 fn run_iterative_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
     unsafe { run_code(jit, ITERATIVE_FIB_CODE, input) }
+}
+
+fn run_try_catch(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
+    jit.compile(DO_THROW_CODE)?;
+    unsafe { run_code(jit, TRY_CATCH_CODE, input) }
 }
 
 fn run_hello(jit: &mut jit::JIT) -> Result<isize, String> {
@@ -104,6 +115,22 @@ const ITERATIVE_FIB_CODE: &str = r#"
                 a = t
                 n = n - 1
             }
+        }
+    }
+"#;
+
+const DO_THROW_CODE: &str = r#"
+    fn do_throw() -> (r) {
+        throw 1
+    }
+"#;
+
+const TRY_CATCH_CODE: &str = r#"
+    fn try_catch(n) -> (r) {
+        try {
+            do_throw()
+        } catch e {
+            r = e
         }
     }
 "#;
