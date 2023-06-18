@@ -5,7 +5,7 @@ authors = ["The Cranelift Project Developers"]
 license = "Apache-2.0 WITH LLVM-exception"
 repository = "https://github.com/bytecodealliance/cranelift-jit-demo"
 description = "Toy language implemented using cranelift-jit"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 peg = "0.6"
@@ -13,3 +13,6 @@ cranelift = { path = "../wasmtime/cranelift/umbrella" }
 cranelift-module = { path = "../wasmtime/cranelift/module" }
 cranelift-jit = { path = "../wasmtime/cranelift/jit" }
 cranelift-native = { path = "../wasmtime/cranelift/native" }
+gimli = "0.27.3"
+object = { version = "0.31.1", features = ["write"] }
+eh_frame_experiments = { git = "ssh://git@github.com/bjorn3/eh_frame_experiments.git" }
