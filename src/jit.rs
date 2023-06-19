@@ -165,6 +165,30 @@ impl JIT {
         // predecessors.
         builder.seal_block(entry_block);
 
+        let entry2_block = builder.create_block();
+        builder.ins().jump(entry2_block, &[]);
+
+        let cleanup_block = builder.create_block();
+        let exception = builder.append_block_param(cleanup_block, int);
+        builder.switch_to_block(cleanup_block);
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(int));
+        let callee = self
+            .module
+            .declare_function(&"__resume_unwind", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, &mut builder.func);
+        builder.ins().call(local_callee, &[exception]);
+        builder.ins().trap(TrapCode::UnreachableCodeReached);
+
+        // Tell the builder to emit code in this block.
+        builder.switch_to_block(entry2_block);
+
+        // And, tell the builder that this block will have no further
+        // predecessors. Since it's the entry block, it won't have any
+        // predecessors.
+        builder.seal_block(entry2_block);
+
         // The toy language allows variables to be declared implicitly.
         // Walk the AST and declare all implicitly-declared variables.
         let variables =
@@ -174,13 +198,16 @@ impl JIT {
         let mut trans = FunctionTranslator {
             int,
             builder,
-            catch_block: None,
+            cleanup_block,
+            do_catch: false,
             variables,
             module: &mut self.module,
         };
         for expr in stmts {
             trans.translate_expr(expr);
         }
+
+        trans.builder.seal_block(trans.cleanup_block);
 
         // Set up the return variable of the function. Above, we declared a
         // variable to hold the return value. Here, we just do a use of that
@@ -202,7 +229,8 @@ impl JIT {
 struct FunctionTranslator<'a> {
     int: types::Type,
     builder: FunctionBuilder<'a>,
-    catch_block: Option<Block>,
+    cleanup_block: Block,
+    do_catch: bool,
     variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
 }
@@ -264,6 +292,9 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Throw(exception) => self.translate_throw(*exception),
             Expr::TryCatch(try_body, exception, catch_body) => {
                 self.translate_try_catch(try_body, exception, catch_body)
+            }
+            Expr::TryFinally(try_body, cleanup_body) => {
+                self.translate_try_finally(try_body, cleanup_body)
             }
         }
     }
@@ -383,17 +414,22 @@ impl<'a> FunctionTranslator<'a> {
         let exit_block = self.builder.create_block();
         let exception_val = self.builder.append_block_param(catch_block, self.int);
 
-        let old_catch_block = std::mem::replace(&mut self.catch_block, Some(catch_block));
+        let old_cleanup_block = std::mem::replace(&mut self.cleanup_block, catch_block);
+        let old_do_catch = std::mem::replace(&mut self.do_catch, true);
 
         for expr in try_body {
             self.translate_expr(expr);
         }
         self.builder.ins().jump(exit_block, &[]);
 
-        self.catch_block = old_catch_block;
+        self.do_catch = old_do_catch;
+        self.cleanup_block = old_cleanup_block;
 
         self.builder.switch_to_block(catch_block);
-        let exception_data = self.builder.ins().load(self.int, MemFlags::trusted(), exception_val, 32);
+        let exception_data =
+            self.builder
+                .ins()
+                .load(self.int, MemFlags::trusted(), exception_val, 32);
         let variable = self.variables.get(&exception).unwrap();
         self.builder.def_var(*variable, exception_data);
 
@@ -405,6 +441,37 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(exit_block);
 
         self.builder.seal_block(catch_block);
+        self.builder.seal_block(exit_block);
+
+        // Just return 0 for now.
+        self.builder.ins().iconst(self.int, 0)
+    }
+
+    fn translate_try_finally(&mut self, try_body: Vec<Expr>, cleanup_body: Vec<Expr>) -> Value {
+        let cleanup_block = self.builder.create_block();
+        let exit_block = self.builder.create_block();
+        let exception_val = self.builder.append_block_param(cleanup_block, self.int);
+
+        let old_cleanup_block = std::mem::replace(&mut self.cleanup_block, cleanup_block);
+        // XXX: Keep do_catch as is
+
+        for expr in try_body {
+            self.translate_expr(expr);
+        }
+        self.builder.ins().jump(exit_block, &[]);
+
+        self.cleanup_block = old_cleanup_block;
+
+        self.builder.switch_to_block(cleanup_block);
+
+        for expr in cleanup_body {
+            self.translate_expr(expr);
+        }
+        self.builder.ins().jump(old_cleanup_block, &[exception_val]);
+
+        self.builder.switch_to_block(exit_block);
+
+        self.builder.seal_block(cleanup_block);
         self.builder.seal_block(exit_block);
 
         // Just return 0 for now.
@@ -434,33 +501,31 @@ impl<'a> FunctionTranslator<'a> {
             arg_values.push(self.translate_expr(arg))
         }
 
-        if let Some(catch_block) = self.catch_block {
-            let fallthrough_block = self.builder.create_block();
-            let return_value = self.builder.append_block_param(fallthrough_block, self.int);
-            let fallthrough_blockcall = BlockCall::new(
-                fallthrough_block,
-                &[],
-                &mut self.builder.func.dfg.value_lists,
-            );
-            let catch_blockcall =
-                BlockCall::new(catch_block, &[], &mut self.builder.func.dfg.value_lists);
-            let jump_table = self.builder.func.create_jump_table(JumpTableData::new(
-                fallthrough_blockcall,
-                &[catch_blockcall],
-            ));
+        let fallthrough_block = self.builder.create_block();
+        let return_value = self.builder.append_block_param(fallthrough_block, self.int);
+        let fallthrough_blockcall = BlockCall::new(
+            fallthrough_block,
+            &[],
+            &mut self.builder.func.dfg.value_lists,
+        );
+        let catch_blockcall =
+            BlockCall::new(self.cleanup_block, &[], &mut self.builder.func.dfg.value_lists);
+        let jump_table = self.builder.func.create_jump_table(JumpTableData::new(
+            fallthrough_blockcall,
+            &[catch_blockcall],
+        ));
 
-            self.builder
-                .ins()
-                .invoke(local_callee, &arg_values, 1 /* catch */, jump_table);
+        self.builder.ins().invoke(
+            local_callee,
+            &arg_values,
+            if self.do_catch { 1 } else { 0 },
+            jump_table,
+        );
 
-            self.builder.seal_block(fallthrough_block);
-            self.builder.switch_to_block(fallthrough_block);
+        self.builder.seal_block(fallthrough_block);
+        self.builder.switch_to_block(fallthrough_block);
 
-            return_value
-        } else {
-            let call = self.builder.ins().call(local_callee, &arg_values);
-            self.builder.func.dfg.inst_results(call)[0]
-        }
+        return_value
     }
 
     fn translate_global_data_addr(&mut self, name: String) -> Value {

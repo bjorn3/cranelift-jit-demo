@@ -129,10 +129,15 @@ const DO_THROW_CODE: &str = r#"
 
 const TRY_CATCH_CODE: &str = r#"
     fn try_catch(n) -> (r) {
+        c = 0
         try {
-            do_throw()
+            try {
+                do_throw()
+            } finally {
+                c = 1
+            }
         } catch e {
-            r = e
+            r = e + c
         }
     }
 "#;

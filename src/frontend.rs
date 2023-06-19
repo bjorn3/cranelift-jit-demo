@@ -16,6 +16,7 @@ pub enum Expr {
     IfElse(Box<Expr>, Vec<Expr>, Vec<Expr>),
     WhileLoop(Box<Expr>, Vec<Expr>),
     TryCatch(Vec<Expr>, String, Vec<Expr>),
+    TryFinally(Vec<Expr>, Vec<Expr>),
     Call(String, Vec<Expr>),
     GlobalDataAddr(String),
     Throw(Box<Expr>),
@@ -43,6 +44,7 @@ peg::parser!(pub grammar parser() for str {
         / if_else()
         / while_loop()
         / try_catch()
+        / try_finally()
         / assignment()
         / binary_op()
 
@@ -62,6 +64,12 @@ peg::parser!(pub grammar parser() for str {
         try_body:statements() _ "}" _ "catch" _ exception:identifier() _ "{" _ "\n"
         catch_body:statements() _ "}"
         { Expr::TryCatch(try_body, exception, catch_body) }
+
+    rule try_finally() -> Expr
+        = "try" _ "{" _ "\n"
+        try_body:statements() _ "}" _ "finally" _ "{" _ "\n"
+        cleanup_body:statements() _ "}"
+        { Expr::TryFinally(try_body, cleanup_body) }
 
     rule assignment() -> Expr
         = i:identifier() _ "=" _ e:expression() {Expr::Assign(i, Box::new(e))}

@@ -60,7 +60,7 @@ impl WriterRelocate {
             match reloc.name {
                 super::DebugRelocName::Section(_) => unreachable!(),
                 super::DebugRelocName::Symbol(sym) => {
-                    let addr = if sym == 1 {
+                    let addr = if sym == 2 {
                         // FIXME hack to find __jit_eh_personality
                         crate::jit::jit_eh_personality as *const u8
                     } else if sym & 1 << 31 == 0 {
