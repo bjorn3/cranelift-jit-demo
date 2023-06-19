@@ -55,22 +55,24 @@ impl WriterRelocate {
 
     /// Perform the collected relocations to be usable for JIT usage.
     pub(super) fn relocate_for_jit(mut self, jit_module: &cranelift_jit::JITModule) -> Vec<u8> {
-        for reloc in dbg!(&mut self.relocs).drain(..) {
+        for reloc in self.relocs.drain(..) {
             assert!(reloc.kind == object::RelocationKind::Absolute);
             match reloc.name {
                 super::DebugRelocName::Section(_) => unreachable!(),
                 super::DebugRelocName::Symbol(sym) => {
-                    dbg!(sym);
-                    let addr = if sym == 2 {
+                    let addr = if sym == 1 {
+                        // FIXME hack to find __jit_eh_personality
                         crate::jit::jit_eh_personality as *const u8
                     } else if sym & 1 << 31 == 0 {
                         jit_module.get_finalized_function(cranelift_module::FuncId::from_u32(
                             sym.try_into().unwrap(),
                         ))
                     } else {
-                        jit_module.get_finalized_data(cranelift_module::DataId::from_u32(
-                            dbg!(u32::try_from(sym).unwrap() & !(1 << 31)),
-                        )).0
+                        jit_module
+                            .get_finalized_data(cranelift_module::DataId::from_u32(
+                                u32::try_from(sym).unwrap() & !(1 << 31),
+                            ))
+                            .0
                     };
                     let val = (addr as u64 as i64 + reloc.addend) as u64;
                     self.writer

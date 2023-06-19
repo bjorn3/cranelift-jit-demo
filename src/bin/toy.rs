@@ -1,3 +1,5 @@
+#![feature(c_unwind)]
+
 use core::mem;
 use cranelift_jit_demo::jit;
 
@@ -59,7 +61,7 @@ unsafe fn run_code<I, O>(jit: &mut jit::JIT, code: &str, input: I) -> Result<O, 
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
-    let code_fn = mem::transmute::<_, fn(I) -> O>(code_ptr);
+    let code_fn = mem::transmute::<_, extern "C-unwind" fn(I) -> O>(code_ptr);
     // And now we can call it!
     Ok(code_fn(input))
 }
@@ -121,7 +123,7 @@ const ITERATIVE_FIB_CODE: &str = r#"
 
 const DO_THROW_CODE: &str = r#"
     fn do_throw() -> (r) {
-        throw 1
+        throw 42
     }
 "#;
 

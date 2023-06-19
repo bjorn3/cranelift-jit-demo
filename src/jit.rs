@@ -165,30 +165,6 @@ impl JIT {
         // predecessors.
         builder.seal_block(entry_block);
 
-        let entry2_block = builder.create_block();
-        builder.ins().jump(entry2_block, &[]);
-
-        let catch_block = builder.create_block();
-        let exception = builder.append_block_param(catch_block, int);
-        builder.switch_to_block(catch_block);
-        let mut sig = self.module.make_signature();
-        sig.params.push(AbiParam::new(int));
-        let callee = self
-            .module
-            .declare_function(&"__resume_unwind", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, &mut builder.func);
-        builder.ins().call(local_callee, &[exception]);
-        builder.ins().trap(TrapCode::UnreachableCodeReached);
-
-        // Tell the builder to emit code in this block.
-        builder.switch_to_block(entry2_block);
-
-        // And, tell the builder that this block will have no further
-        // predecessors. Since it's the entry block, it won't have any
-        // predecessors.
-        builder.seal_block(entry2_block);
-
         // The toy language allows variables to be declared implicitly.
         // Walk the AST and declare all implicitly-declared variables.
         let variables =
@@ -198,15 +174,13 @@ impl JIT {
         let mut trans = FunctionTranslator {
             int,
             builder,
-            catch_block,
+            catch_block: None,
             variables,
             module: &mut self.module,
         };
         for expr in stmts {
             trans.translate_expr(expr);
         }
-
-        trans.builder.seal_block(trans.catch_block);
 
         // Set up the return variable of the function. Above, we declared a
         // variable to hold the return value. Here, we just do a use of that
@@ -228,7 +202,7 @@ impl JIT {
 struct FunctionTranslator<'a> {
     int: types::Type,
     builder: FunctionBuilder<'a>,
-    catch_block: Block,
+    catch_block: Option<Block>,
     variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
 }
@@ -409,7 +383,7 @@ impl<'a> FunctionTranslator<'a> {
         let exit_block = self.builder.create_block();
         let exception_val = self.builder.append_block_param(catch_block, self.int);
 
-        let old_catch_block = std::mem::replace(&mut self.catch_block, catch_block);
+        let old_catch_block = std::mem::replace(&mut self.catch_block, Some(catch_block));
 
         for expr in try_body {
             self.translate_expr(expr);
@@ -459,31 +433,33 @@ impl<'a> FunctionTranslator<'a> {
             arg_values.push(self.translate_expr(arg))
         }
 
-        let fallthrough_block = self.builder.create_block();
-        let return_value = self.builder.append_block_param(fallthrough_block, self.int);
-        let fallthrough_blockcall = BlockCall::new(
-            fallthrough_block,
-            &[],
-            &mut self.builder.func.dfg.value_lists,
-        );
-        let catch_blockcall = BlockCall::new(
-            self.catch_block,
-            &[],
-            &mut self.builder.func.dfg.value_lists,
-        );
-        let jump_table = self.builder.func.create_jump_table(JumpTableData::new(
-            fallthrough_blockcall,
-            &[catch_blockcall],
-        ));
+        if let Some(catch_block) = self.catch_block {
+            let fallthrough_block = self.builder.create_block();
+            let return_value = self.builder.append_block_param(fallthrough_block, self.int);
+            let fallthrough_blockcall = BlockCall::new(
+                fallthrough_block,
+                &[],
+                &mut self.builder.func.dfg.value_lists,
+            );
+            let catch_blockcall =
+                BlockCall::new(catch_block, &[], &mut self.builder.func.dfg.value_lists);
+            let jump_table = self.builder.func.create_jump_table(JumpTableData::new(
+                fallthrough_blockcall,
+                &[catch_blockcall],
+            ));
 
-        self.builder
-            .ins()
-            .invoke(local_callee, &arg_values, 1 /* catch */, jump_table);
+            self.builder
+                .ins()
+                .invoke(local_callee, &arg_values, 1 /* catch */, jump_table);
 
-        self.builder.seal_block(fallthrough_block);
-        self.builder.switch_to_block(fallthrough_block);
+            self.builder.seal_block(fallthrough_block);
+            self.builder.switch_to_block(fallthrough_block);
 
-        return_value
+            return_value
+        } else {
+            let call = self.builder.ins().call(local_callee, &arg_values);
+            self.builder.func.dfg.inst_results(call)[0]
+        }
     }
 
     fn translate_global_data_addr(&mut self, name: String) -> Value {
@@ -599,7 +575,7 @@ unsafe extern "C" fn jit_exception_cleanup(_: u64, exception: *mut _Unwind_Excep
 }
 
 // FIXME C-unwind
-extern "C" fn do_throw(exception: usize) -> ! {
+extern "C-unwind" fn do_throw(exception: usize) -> ! {
     unsafe {
         let res = _Unwind_RaiseException(Box::into_raw(Box::new(JitException {
             base: _Unwind_Exception {
@@ -614,8 +590,8 @@ extern "C" fn do_throw(exception: usize) -> ! {
 }
 
 // FIXME C-unwind
-extern "C" fn do_resume_unwind(exception: usize) -> ! {
-    panic!("resume unwind");
+unsafe extern "C-unwind" fn do_resume_unwind(exception: *mut _Unwind_Exception) -> ! {
+    _Unwind_Resume(exception)
 }
 
 type _Unwind_Exception_Class = u64;
@@ -653,7 +629,6 @@ pub struct _Unwind_Exception {
 
 extern "C" fn cleanup(_: u64, _: *mut _Unwind_Exception) {}
 
-
 #[repr(C)]
 pub enum _Unwind_Reason_Code {
     _URC_NO_REASON = 0,
@@ -680,6 +655,16 @@ pub enum _Unwind_Action {
     _UA_END_OF_STACK = 16,
 }
 
+extern "C" {
+    fn rust_eh_personality(
+        version: i32,
+        actions: _Unwind_Action,
+        exception_class: _Unwind_Exception_Class,
+        exception_object: *mut _Unwind_Exception,
+        context: *mut _Unwind_Context,
+    ) -> _Unwind_Reason_Code;
+}
+
 pub(crate) unsafe extern "C" fn jit_eh_personality(
     version: i32,
     actions: _Unwind_Action,
@@ -687,6 +672,9 @@ pub(crate) unsafe extern "C" fn jit_eh_personality(
     exception_object: *mut _Unwind_Exception,
     context: *mut _Unwind_Context,
 ) -> _Unwind_Reason_Code {
+    unsafe {
+        return rust_eh_personality(version, actions, exception_class, exception_object, context);
+    }
     // FIXME implement an actual personality function
 
     let ip = _Unwind_GetIP(context);
