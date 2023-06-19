@@ -393,8 +393,9 @@ impl<'a> FunctionTranslator<'a> {
         self.catch_block = old_catch_block;
 
         self.builder.switch_to_block(catch_block);
+        let exception_data = self.builder.ins().load(self.int, MemFlags::trusted(), exception_val, 32);
         let variable = self.variables.get(&exception).unwrap();
-        self.builder.def_var(*variable, exception_val);
+        self.builder.def_var(*variable, exception_data);
 
         for expr in catch_body {
             self.translate_expr(expr);
@@ -673,10 +674,11 @@ pub(crate) unsafe extern "C" fn jit_eh_personality(
     context: *mut _Unwind_Context,
 ) -> _Unwind_Reason_Code {
     unsafe {
+        // XXX This depends on unstable implementation details of rustc
         return rust_eh_personality(version, actions, exception_class, exception_object, context);
     }
-    // FIXME implement an actual personality function
 
+    // FIXME Maybe implement our own personality function?
     let ip = _Unwind_GetIP(context);
     let lsda = _Unwind_GetLanguageSpecificData(context);
 
