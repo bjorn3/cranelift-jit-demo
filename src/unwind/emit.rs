@@ -1,6 +1,6 @@
 //! Write the debuginfo into an object file.
 
-use cranelift_module::{DataId, FuncId};
+use cranelift_module::{DataId, FuncId, Module, FuncOrDataId};
 
 use gimli::write::{Address, EndianVec, Result, Writer};
 use gimli::{RunTimeEndian, SectionId};
@@ -55,13 +55,18 @@ impl WriterRelocate {
 
     /// Perform the collected relocations to be usable for JIT usage.
     pub(super) fn relocate_for_jit(mut self, jit_module: &cranelift_jit::JITModule) -> Vec<u8> {
+        let eh_personality_sym = match jit_module.declarations().get_name("__jit_eh_personality") {
+            Some(FuncOrDataId::Func(func_id)) => Some(func_id.as_u32() as usize),
+            Some(FuncOrDataId::Data(_)) => unreachable!(),
+            None => None,
+        };
+
         for reloc in self.relocs.drain(..) {
             assert!(reloc.kind == object::RelocationKind::Absolute);
             match reloc.name {
                 super::DebugRelocName::Section(_) => unreachable!(),
                 super::DebugRelocName::Symbol(sym) => {
-                    let addr = if sym == 2 {
-                        // FIXME hack to find __jit_eh_personality
+                    let addr = if Some(sym) == eh_personality_sym {
                         crate::unwind::jit_eh_personality as *const u8
                     } else if sym & 1 << 31 == 0 {
                         jit_module.get_finalized_function(cranelift_module::FuncId::from_u32(
