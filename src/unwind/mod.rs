@@ -2,9 +2,11 @@
 
 mod emit;
 mod unwind;
+mod unwind_gcc;
 
 pub(crate) use emit::DebugRelocName;
-pub(crate) use unwind::UnwindContext;
+pub(crate) use unwind::{LandingpadStrategy, UnwindContext};
+pub(crate) use unwind_gcc::GccLandingpadStrategy;
 
 #[repr(C)]
 struct JitException {
@@ -93,43 +95,4 @@ pub enum _Unwind_Action {
     _UA_HANDLER_FRAME = 4,
     _UA_FORCE_UNWIND = 8,
     _UA_END_OF_STACK = 16,
-}
-
-extern "C" {
-    fn rust_eh_personality(
-        version: i32,
-        actions: _Unwind_Action,
-        exception_class: _Unwind_Exception_Class,
-        exception_object: *mut _Unwind_Exception,
-        context: *mut _Unwind_Context,
-    ) -> _Unwind_Reason_Code;
-}
-
-pub(crate) unsafe extern "C" fn jit_eh_personality(
-    version: i32,
-    actions: _Unwind_Action,
-    exception_class: _Unwind_Exception_Class,
-    exception_object: *mut _Unwind_Exception,
-    context: *mut _Unwind_Context,
-) -> _Unwind_Reason_Code {
-    unsafe {
-        // XXX This depends on unstable implementation details of rustc
-        return rust_eh_personality(version, actions, exception_class, exception_object, context);
-    }
-
-    // FIXME Maybe implement our own personality function?
-    let ip = _Unwind_GetIP(context);
-    let lsda = _Unwind_GetLanguageSpecificData(context);
-
-    if actions as i32 & _Unwind_Action::_UA_SEARCH_PHASE as i32 != 0 {
-        println!("personality for {:#x}; lsda={:p}; search", ip, lsda,);
-
-        panic!();
-    } else if actions as i32 & _Unwind_Action::_UA_CLEANUP_PHASE as i32 != 0 {
-        println!("personality for {:#x}; lsda={:p}; cleanup", ip, lsda,);
-
-        panic!();
-    } else {
-        panic!();
-    }
 }

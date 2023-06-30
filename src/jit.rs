@@ -1,4 +1,5 @@
 use crate::frontend::*;
+use crate::unwind::LandingpadStrategy;
 use cranelift::codegen::ir::BlockCall;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
@@ -44,7 +45,7 @@ impl Default for JIT {
         );
         builder.symbol(
             "__jit_eh_personality",
-            crate::unwind::jit_eh_personality as *const u8,
+            crate::unwind::GccLandingpadStrategy.personality_addr(),
         );
 
         let module = JITModule::new(builder);
