@@ -6,7 +6,6 @@ mod unwind_gcc;
 
 pub(crate) use emit::DebugRelocName;
 pub(crate) use unwind::{LandingpadStrategy, UnwindContext};
-pub(crate) use unwind_gcc::GccLandingpadStrategy;
 
 #[repr(C)]
 struct JitException {

@@ -5,7 +5,7 @@ use cranelift_module::{DataId, FuncId, FuncOrDataId, Module};
 use gimli::write::{Address, EndianVec, Result, Writer};
 use gimli::{RunTimeEndian, SectionId};
 
-use crate::unwind::{GccLandingpadStrategy, LandingpadStrategy};
+use crate::unwind::LandingpadStrategy;
 
 pub(super) fn address_for_func(func_id: FuncId) -> Address {
     let symbol = func_id.as_u32();
@@ -56,10 +56,14 @@ impl WriterRelocate {
     }
 
     /// Perform the collected relocations to be usable for JIT usage.
-    pub(super) fn relocate_for_jit(mut self, jit_module: &cranelift_jit::JITModule) -> Vec<u8> {
+    pub(super) fn relocate_for_jit(
+        mut self,
+        jit_module: &cranelift_jit::JITModule,
+        strategy: &dyn LandingpadStrategy,
+    ) -> Vec<u8> {
         let eh_personality_sym = match jit_module
             .declarations()
-            .get_name(GccLandingpadStrategy.personality_name())
+            .get_name(strategy.personality_name())
         {
             Some(FuncOrDataId::Func(func_id)) => Some(func_id.as_u32() as usize),
             Some(FuncOrDataId::Data(_)) => unreachable!(),
@@ -72,7 +76,7 @@ impl WriterRelocate {
                 super::DebugRelocName::Section(_) => unreachable!(),
                 super::DebugRelocName::Symbol(sym) => {
                     let addr = if Some(sym) == eh_personality_sym {
-                        GccLandingpadStrategy.personality_addr()
+                        strategy.personality_addr()
                     } else if sym & 1 << 31 == 0 {
                         jit_module.get_finalized_function(cranelift_module::FuncId::from_u32(
                             sym.try_into().unwrap(),

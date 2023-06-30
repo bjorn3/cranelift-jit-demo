@@ -43,10 +43,6 @@ impl Default for JIT {
             "__resume_unwind",
             crate::unwind::do_resume_unwind as *const u8,
         );
-        builder.symbol(
-            "__jit_eh_personality",
-            crate::unwind::GccLandingpadStrategy.personality_addr(),
-        );
 
         let module = JITModule::new(builder);
         Self {

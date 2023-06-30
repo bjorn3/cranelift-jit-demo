@@ -118,7 +118,7 @@ impl UnwindContext {
             return;
         }
 
-        let mut eh_frame = eh_frame.0.relocate_for_jit(jit_module);
+        let mut eh_frame = eh_frame.0.relocate_for_jit(jit_module, &*self.strategy);
 
         // GCC expects a terminating "empty" length, so write a 0 length at the end of the table.
         eh_frame.extend(&[0, 0, 0, 0]);
