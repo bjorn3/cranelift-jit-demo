@@ -62,7 +62,7 @@ impl WriterRelocate {
                 super::DebugRelocName::Symbol(sym) => {
                     let addr = if sym == 2 {
                         // FIXME hack to find __jit_eh_personality
-                        crate::jit::jit_eh_personality as *const u8
+                        crate::unwind::jit_eh_personality as *const u8
                     } else if sym & 1 << 31 == 0 {
                         jit_module.get_finalized_function(cranelift_module::FuncId::from_u32(
                             sym.try_into().unwrap(),
