@@ -9,7 +9,7 @@ use gimli::{Encoding, Format, RunTimeEndian};
 use crate::unwind::unwind::LandingpadStrategy;
 use crate::unwind::{
     DebugRelocName, _Unwind_Action, _Unwind_Context, _Unwind_Exception, _Unwind_Exception_Class,
-    _Unwind_GetIP, _Unwind_GetLanguageSpecificData, _Unwind_Reason_Code,
+    _Unwind_Reason_Code,
 };
 
 pub(crate) struct GccLandingpadStrategy;
@@ -23,7 +23,12 @@ impl LandingpadStrategy for GccLandingpadStrategy {
         jit_eh_personality as *const u8
     }
 
-    fn generate_lsda(&self, module: &mut dyn Module, context: &Context) -> DataId {
+    fn generate_lsda(
+        &self,
+        module: &mut dyn Module,
+        _func_id: FuncId,
+        context: &Context,
+    ) -> DataId {
         // FIXME use unique symbol name derived from function name
         let lsda = module.declare_anonymous_data(false, false).unwrap();
 
@@ -130,22 +135,6 @@ unsafe extern "C" fn jit_eh_personality(
 ) -> _Unwind_Reason_Code {
     unsafe {
         // XXX This depends on unstable implementation details of rustc
-        return rust_eh_personality(version, actions, exception_class, exception_object, context);
-    }
-
-    // FIXME Maybe implement our own personality function?
-    let ip = _Unwind_GetIP(context);
-    let lsda = _Unwind_GetLanguageSpecificData(context);
-
-    if actions as i32 & _Unwind_Action::_UA_SEARCH_PHASE as i32 != 0 {
-        println!("personality for {:#x}; lsda={:p}; search", ip, lsda,);
-
-        panic!();
-    } else if actions as i32 & _Unwind_Action::_UA_CLEANUP_PHASE as i32 != 0 {
-        println!("personality for {:#x}; lsda={:p}; cleanup", ip, lsda,);
-
-        panic!();
-    } else {
-        panic!();
+        rust_eh_personality(version, actions, exception_class, exception_object, context)
     }
 }

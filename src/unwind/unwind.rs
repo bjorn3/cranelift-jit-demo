@@ -9,6 +9,7 @@ use cranelift_module::{DataId, FuncId, Linkage, Module};
 use gimli::write::{CieId, EhFrame, FrameTable};
 use gimli::RunTimeEndian;
 
+use crate::unwind::unwind_fast::FastLandingpadStrategy;
 use crate::unwind::unwind_gcc::GccLandingpadStrategy;
 
 use super::emit::{address_for_data, address_for_func};
@@ -16,7 +17,7 @@ use super::emit::{address_for_data, address_for_func};
 pub(crate) trait LandingpadStrategy {
     fn personality_name(&self) -> &str;
     fn personality_addr(&self) -> *const u8;
-    fn generate_lsda(&self, module: &mut dyn Module, context: &Context) -> DataId;
+    fn generate_lsda(&self, module: &mut dyn Module, func_id: FuncId, context: &Context) -> DataId;
 }
 
 pub(crate) struct UnwindContext {
@@ -34,7 +35,7 @@ impl UnwindContext {
         };
         let mut frame_table = FrameTable::default();
 
-        let strategy = Box::new(GccLandingpadStrategy);
+        let strategy = Box::new(FastLandingpadStrategy);
 
         let cie_id = if let Some(mut cie) = module.isa().create_systemv_cie() {
             cie.fde_address_encoding = gimli::DW_EH_PE_absptr;
@@ -94,7 +95,7 @@ impl UnwindContext {
             UnwindInfo::SystemV(unwind_info) => {
                 let mut fde = unwind_info.to_fde(address_for_func(func_id));
 
-                let lsda = self.strategy.generate_lsda(module, context);
+                let lsda = self.strategy.generate_lsda(module, func_id, context);
 
                 fde.lsda = Some(address_for_data(lsda));
                 self.frame_table.add_fde(self.cie_id.unwrap(), fde);

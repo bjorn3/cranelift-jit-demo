@@ -1,5 +1,4 @@
 use crate::frontend::*;
-use crate::unwind::LandingpadStrategy;
 use cranelift::codegen::ir::BlockCall;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};

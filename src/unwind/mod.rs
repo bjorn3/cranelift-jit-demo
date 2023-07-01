@@ -2,6 +2,7 @@
 
 mod emit;
 mod unwind;
+mod unwind_fast;
 mod unwind_gcc;
 
 pub(crate) use emit::DebugRelocName;
@@ -37,8 +38,11 @@ pub(crate) unsafe extern "C-unwind" fn do_resume_unwind(exception: *mut _Unwind_
     _Unwind_Resume(exception)
 }
 
+#[allow(non_camel_case_types)]
 type _Unwind_Exception_Class = u64;
+#[allow(non_camel_case_types)]
 type _Unwind_Word = usize;
+#[allow(non_camel_case_types)]
 type _Unwind_Ptr = usize;
 
 #[link(name = "gcc_s")]
@@ -70,6 +74,7 @@ pub struct _Unwind_Exception {
     _private: [usize; 2],
 }
 
+#[allow(non_camel_case_types)]
 #[repr(C)]
 pub enum _Unwind_Reason_Code {
     _URC_NO_REASON = 0,
@@ -84,8 +89,10 @@ pub enum _Unwind_Reason_Code {
     _URC_FAILURE = 9, // used only by ARM EHABI
 }
 
+#[allow(non_camel_case_types)]
 pub enum _Unwind_Context {}
 
+#[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum _Unwind_Action {
