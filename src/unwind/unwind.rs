@@ -1,12 +1,12 @@
 //! Unwind info generation (`.eh_frame`)
 
-use cranelift::codegen::ir::{types, AbiParam, Endianness, Signature};
+use cranelift::codegen::ir::{types, AbiParam, Signature};
 use cranelift::codegen::isa::unwind::UnwindInfo;
 use cranelift::codegen::Context;
 
 use cranelift_module::{DataId, FuncId, Linkage, Module};
 
-use gimli::write::{CieId, EhFrame, FrameTable};
+use gimli::write::{EhFrame, FrameTable};
 use gimli::RunTimeEndian;
 
 use crate::unwind::unwind_fast::FastLandingpadStrategy;
@@ -22,20 +22,22 @@ pub(crate) trait LandingpadStrategy {
 
 pub(crate) struct UnwindContext {
     strategy: Box<dyn LandingpadStrategy>,
-    endian: RunTimeEndian,
-    frame_table: FrameTable,
-    cie_id: Option<CieId>,
 }
 
 impl UnwindContext {
-    pub(crate) fn new(module: &mut dyn Module) -> Self {
-        let endian = match module.isa().endianness() {
-            Endianness::Little => RunTimeEndian::Little,
-            Endianness::Big => RunTimeEndian::Big,
-        };
-        let mut frame_table = FrameTable::default();
-
+    pub(crate) fn new() -> Self {
         let strategy = Box::new(FastLandingpadStrategy);
+
+        UnwindContext { strategy }
+    }
+
+    pub(crate) fn register_function(
+        &mut self,
+        module: &mut cranelift_jit::JITModule,
+        func_id: FuncId,
+        context: &Context,
+    ) {
+        let mut frame_table = FrameTable::default();
 
         let cie_id = if let Some(mut cie) = module.isa().create_systemv_cie() {
             cie.fde_address_encoding = gimli::DW_EH_PE_absptr;
@@ -44,7 +46,7 @@ impl UnwindContext {
             // FIXME use eh_personality lang item instead
             let personality = module
                 .declare_function(
-                    strategy.personality_name(),
+                    self.strategy.personality_name(),
                     Linkage::Import,
                     &Signature {
                         params: vec![
@@ -66,20 +68,6 @@ impl UnwindContext {
             None
         };
 
-        UnwindContext {
-            strategy,
-            endian,
-            frame_table,
-            cie_id,
-        }
-    }
-
-    pub(crate) fn add_function(
-        &mut self,
-        module: &mut dyn Module,
-        func_id: FuncId,
-        context: &Context,
-    ) {
         let unwind_info = if let Some(unwind_info) = context
             .compiled_code()
             .unwrap()
@@ -98,28 +86,32 @@ impl UnwindContext {
                 let lsda = self.strategy.generate_lsda(module, func_id, context);
 
                 fde.lsda = Some(address_for_data(lsda));
-                self.frame_table.add_fde(self.cie_id.unwrap(), fde);
+                frame_table.add_fde(cie_id.unwrap(), fde);
             }
             UnwindInfo::WindowsX64(_) => {
                 // FIXME implement this
             }
             unwind_info => unimplemented!("{:?}", unwind_info),
         }
-    }
 
-    pub(crate) unsafe fn register_jit(self, jit_module: &mut cranelift_jit::JITModule) {
-        jit_module.finalize_definitions().unwrap();
+        module.finalize_definitions().unwrap();
 
         use std::mem::ManuallyDrop;
 
-        let mut eh_frame = EhFrame::from(super::emit::WriterRelocate::new(self.endian));
-        self.frame_table.write_eh_frame(&mut eh_frame).unwrap();
+        let mut eh_frame = EhFrame::from(super::emit::WriterRelocate::new(
+            if cfg!(target_endian = "little") {
+                RunTimeEndian::Little
+            } else {
+                RunTimeEndian::Big
+            },
+        ));
+        frame_table.write_eh_frame(&mut eh_frame).unwrap();
 
         if eh_frame.0.writer.slice().is_empty() {
             return;
         }
 
-        let mut eh_frame = eh_frame.0.relocate_for_jit(jit_module, &*self.strategy);
+        let mut eh_frame = eh_frame.0.relocate_for_jit(module, &*self.strategy);
 
         // GCC expects a terminating "empty" length, so write a 0 length at the end of the table.
         eh_frame.extend(&[0, 0, 0, 0]);
@@ -128,33 +120,35 @@ impl UnwindContext {
         // individual functions
         let eh_frame = ManuallyDrop::new(eh_frame);
 
-        // =======================================================================
-        // Everything after this line up to the end of the file is loosely based on
-        // https://github.com/bytecodealliance/wasmtime/blob/4471a82b0c540ff48960eca6757ccce5b1b5c3e4/crates/jit/src/unwind/systemv.rs
-        #[cfg(target_os = "macos")]
-        {
-            // On macOS, `__register_frame` takes a pointer to a single FDE
-            let start = eh_frame.as_ptr();
-            let end = start.add(eh_frame.len());
-            let mut current = start;
+        unsafe {
+            // =======================================================================
+            // Everything after this line up to the end of the file is loosely based on
+            // https://github.com/bytecodealliance/wasmtime/blob/4471a82b0c540ff48960eca6757ccce5b1b5c3e4/crates/jit/src/unwind/systemv.rs
+            #[cfg(target_os = "macos")]
+            {
+                // On macOS, `__register_frame` takes a pointer to a single FDE
+                let start = eh_frame.as_ptr();
+                let end = start.add(eh_frame.len());
+                let mut current = start;
 
-            // Walk all of the entries in the frame table and register them
-            while current < end {
-                let len = std::ptr::read::<u32>(current as *const u32) as usize;
+                // Walk all of the entries in the frame table and register them
+                while current < end {
+                    let len = std::ptr::read::<u32>(current as *const u32) as usize;
 
-                // Skip over the CIE
-                if current != start {
-                    __register_frame(current);
+                    // Skip over the CIE
+                    if current != start {
+                        __register_frame(current);
+                    }
+
+                    // Move to the next table entry (+4 because the length itself is not inclusive)
+                    current = current.add(len + 4);
                 }
-
-                // Move to the next table entry (+4 because the length itself is not inclusive)
-                current = current.add(len + 4);
             }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            // On other platforms, `__register_frame` will walk the FDEs until an entry of length 0
-            __register_frame(eh_frame.as_ptr());
+            #[cfg(not(target_os = "macos"))]
+            {
+                // On other platforms, `__register_frame` will walk the FDEs until an entry of length 0
+                __register_frame(eh_frame.as_ptr());
+            }
         }
     }
 }

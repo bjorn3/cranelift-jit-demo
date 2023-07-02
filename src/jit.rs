@@ -93,11 +93,8 @@ impl JIT {
         // available).
         self.module.finalize_definitions().unwrap();
 
-        let mut unwind_context = crate::unwind::UnwindContext::new(&mut self.module);
-        unwind_context.add_function(&mut self.module, id, &self.ctx);
-        unsafe {
-            unwind_context.register_jit(&mut self.module);
-        }
+        let mut unwind_context = crate::unwind::UnwindContext::new();
+        unwind_context.register_function(&mut self.module, id, &self.ctx);
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
