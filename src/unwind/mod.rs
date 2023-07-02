@@ -5,37 +5,37 @@ mod unwind;
 mod unwind_fast;
 mod unwind_gcc;
 
+use cranelift::codegen::Context;
+use cranelift_jit::JITModule;
+use cranelift_module::FuncId;
 pub(crate) use emit::DebugRelocName;
 pub(crate) use unwind::{LandingpadStrategy, UnwindContext};
 
-#[repr(C)]
-struct JitException {
-    base: _Unwind_Exception,
-    data: usize,
-}
+// FIXME add non-eh_frame based unwinder option
 
-unsafe extern "C" fn jit_exception_cleanup(_: u64, exception: *mut _Unwind_Exception) {
-    let _ = Box::from_raw(exception as *mut JitException);
-}
+pub unsafe trait Unwinder {
+    fn register_function(&mut self, module: &mut JITModule, func_id: FuncId, context: &Context);
 
-// FIXME C-unwind
-pub(crate) extern "C-unwind" fn do_throw(exception: usize) -> ! {
-    unsafe {
-        let res = _Unwind_RaiseException(Box::into_raw(Box::new(JitException {
-            base: _Unwind_Exception {
-                _exception_class: 0,
-                _exception_cleanup: jit_exception_cleanup,
-                _private: [0; 2],
-            },
-            data: exception,
-        })) as *mut _Unwind_Exception);
-        panic!("Failed to raise exception: {res}");
-    }
-}
+    unsafe fn call_and_catch_unwind0(
+        &self,
+        func: extern "C-unwind" fn() -> usize,
+    ) -> Result<usize, usize>;
+    unsafe fn call_and_catch_unwind1(
+        &self,
+        func: extern "C-unwind" fn(usize) -> usize,
+        arg: usize,
+    ) -> Result<usize, usize>;
+    unsafe fn call_and_catch_unwind2(
+        &self,
+        func: extern "C-unwind" fn(usize, usize) -> usize,
+        arg0: usize,
+        arg1: usize,
+    ) -> Result<usize, usize>;
 
-// FIXME C-unwind
-pub(crate) unsafe extern "C-unwind" fn do_resume_unwind(exception: *mut _Unwind_Exception) -> ! {
-    _Unwind_Resume(exception)
+    fn throw_func(&self) -> unsafe extern "C-unwind" fn(exception: usize) -> !;
+    fn resume_unwind_func(
+        &self,
+    ) -> unsafe extern "C-unwind" fn(exception: *mut _Unwind_Exception) -> !;
 }
 
 #[allow(non_camel_case_types)]

@@ -11,6 +11,7 @@ use gimli::RunTimeEndian;
 
 use crate::unwind::unwind_fast::FastLandingpadStrategy;
 use crate::unwind::unwind_gcc::GccLandingpadStrategy;
+use crate::unwind::{Unwinder, _Unwind_Exception, _Unwind_RaiseException, _Unwind_Resume};
 
 use super::emit::{address_for_data, address_for_func};
 
@@ -30,8 +31,10 @@ impl UnwindContext {
 
         UnwindContext { strategy }
     }
+}
 
-    pub(crate) fn register_function(
+unsafe impl Unwinder for UnwindContext {
+    fn register_function(
         &mut self,
         module: &mut cranelift_jit::JITModule,
         func_id: FuncId,
@@ -151,6 +154,76 @@ impl UnwindContext {
             }
         }
     }
+
+    unsafe fn call_and_catch_unwind0(
+        &self,
+        func: extern "C-unwind" fn() -> usize,
+    ) -> Result<usize, usize> {
+        std::panic::catch_unwind(|| func()).map_err(|_err| {
+            todo!("get exception data");
+        })
+    }
+
+    unsafe fn call_and_catch_unwind1(
+        &self,
+        func: extern "C-unwind" fn(usize) -> usize,
+        arg: usize,
+    ) -> Result<usize, usize> {
+        std::panic::catch_unwind(|| func(arg)).map_err(|_err| {
+            todo!("get exception data");
+        })
+    }
+
+    unsafe fn call_and_catch_unwind2(
+        &self,
+        func: extern "C-unwind" fn(usize, usize) -> usize,
+        arg0: usize,
+        arg1: usize,
+    ) -> Result<usize, usize> {
+        std::panic::catch_unwind(|| func(arg0, arg1)).map_err(|_err| {
+            todo!("get exception data");
+        })
+    }
+
+    fn throw_func(&self) -> unsafe extern "C-unwind" fn(exception: usize) -> ! {
+        do_throw
+    }
+
+    fn resume_unwind_func(
+        &self,
+    ) -> unsafe extern "C-unwind" fn(exception: *mut _Unwind_Exception) -> ! {
+        do_resume_unwind
+    }
+}
+
+#[repr(C)]
+struct JitException {
+    base: _Unwind_Exception,
+    data: usize,
+}
+
+unsafe extern "C" fn jit_exception_cleanup(_: u64, exception: *mut _Unwind_Exception) {
+    let _ = Box::from_raw(exception as *mut JitException);
+}
+
+// FIXME C-unwind
+pub(crate) extern "C-unwind" fn do_throw(exception: usize) -> ! {
+    unsafe {
+        let res = _Unwind_RaiseException(Box::into_raw(Box::new(JitException {
+            base: _Unwind_Exception {
+                _exception_class: 0,
+                _exception_cleanup: jit_exception_cleanup,
+                _private: [0; 2],
+            },
+            data: exception,
+        })) as *mut _Unwind_Exception);
+        panic!("Failed to raise exception: {res}");
+    }
+}
+
+// FIXME C-unwind
+pub(crate) unsafe extern "C-unwind" fn do_resume_unwind(exception: *mut _Unwind_Exception) -> ! {
+    _Unwind_Resume(exception)
 }
 
 extern "C" {

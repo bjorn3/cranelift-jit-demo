@@ -25,45 +25,55 @@ fn main() {
     }
 }
 
-fn run_foo(jit: &mut jit::JIT) -> Result<isize, String> {
-    unsafe { run_code(jit, FOO_CODE, (1, 0)) }
+fn run_foo(jit: &mut jit::JIT) -> Result<usize, String> {
+    unsafe { run_code2(jit, FOO_CODE, 1, 0) }
 }
 
-fn run_recursive_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
-    unsafe { run_code(jit, RECURSIVE_FIB_CODE, input) }
+fn run_recursive_fib_code(jit: &mut jit::JIT, input: usize) -> Result<usize, String> {
+    unsafe { run_code1(jit, RECURSIVE_FIB_CODE, input) }
 }
 
-fn run_iterative_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
-    unsafe { run_code(jit, ITERATIVE_FIB_CODE, input) }
+fn run_iterative_fib_code(jit: &mut jit::JIT, input: usize) -> Result<usize, String> {
+    unsafe { run_code1(jit, ITERATIVE_FIB_CODE, input) }
 }
 
-fn run_try_catch(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
+fn run_try_catch(jit: &mut jit::JIT, input: usize) -> Result<usize, String> {
     jit.compile(DO_THROW_CODE)?;
-    unsafe { run_code(jit, TRY_CATCH_CODE, input) }
+    unsafe { run_code1(jit, TRY_CATCH_CODE, input) }
 }
 
-fn run_hello(jit: &mut jit::JIT) -> Result<isize, String> {
+fn run_hello(jit: &mut jit::JIT) -> Result<usize, String> {
     jit.create_data("hello_string", "hello world!\0".as_bytes().to_vec())?;
-    unsafe { run_code(jit, HELLO_CODE, ()) }
+    unsafe { run_code0(jit, HELLO_CODE) }
 }
 
-/// Executes the given code using the cranelift JIT compiler.
-///
-/// Feeds the given input into the JIT compiled function and returns the resulting output.
-///
-/// # Safety
-///
-/// This function is unsafe since it relies on the caller to provide it with the correct
-/// input and output types. Using incorrect types at this point may corrupt the program's state.
-unsafe fn run_code<I, O>(jit: &mut jit::JIT, code: &str, input: I) -> Result<O, String> {
-    // Pass the string to the JIT, and it returns a raw pointer to machine code.
+unsafe fn run_code0(jit: &mut jit::JIT, code: &str) -> Result<usize, String> {
     let code_ptr = jit.compile(code)?;
-    // Cast the raw pointer to a typed function pointer. This is unsafe, because
-    // this is the critical point where you have to trust that the generated code
-    // is safe to be called.
-    let code_fn = mem::transmute::<_, extern "C-unwind" fn(I) -> O>(code_ptr);
-    // And now we can call it!
-    Ok(code_fn(input))
+    let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
+    Ok(jit.unwind_context.call_and_catch_unwind0(code_fn).unwrap())
+}
+
+unsafe fn run_code1(jit: &mut jit::JIT, code: &str, input: usize) -> Result<usize, String> {
+    let code_ptr = jit.compile(code)?;
+    let code_fn = mem::transmute::<_, extern "C-unwind" fn(usize) -> usize>(code_ptr);
+    Ok(jit
+        .unwind_context
+        .call_and_catch_unwind1(code_fn, input)
+        .unwrap())
+}
+
+unsafe fn run_code2(
+    jit: &mut jit::JIT,
+    code: &str,
+    input0: usize,
+    input1: usize,
+) -> Result<usize, String> {
+    let code_ptr = jit.compile(code)?;
+    let code_fn = mem::transmute::<_, extern "C-unwind" fn(usize, usize) -> usize>(code_ptr);
+    Ok(jit
+        .unwind_context
+        .call_and_catch_unwind2(code_fn, input0, input1)
+        .unwrap())
 }
 
 // A small test function.

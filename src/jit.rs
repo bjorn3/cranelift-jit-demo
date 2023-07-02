@@ -1,4 +1,5 @@
 use crate::frontend::*;
+use crate::unwind::Unwinder;
 use cranelift::codegen::ir::BlockCall;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
@@ -23,6 +24,8 @@ pub struct JIT {
     /// The module, with the jit backend, which manages the JIT'd
     /// functions.
     module: JITModule,
+
+    pub unwind_context: Box<dyn Unwinder>,
 }
 
 impl Default for JIT {
@@ -37,10 +40,13 @@ impl Default for JIT {
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        builder.symbol("__throw", crate::unwind::do_throw as *const u8);
+
+        let unwind_context = Box::new(crate::unwind::UnwindContext::new());
+
+        builder.symbol("__throw", unwind_context.throw_func() as *const u8);
         builder.symbol(
             "__resume_unwind",
-            crate::unwind::do_resume_unwind as *const u8,
+            unwind_context.resume_unwind_func() as *const u8,
         );
 
         let module = JITModule::new(builder);
@@ -49,6 +55,7 @@ impl Default for JIT {
             ctx: module.make_context(),
             data_ctx: DataDescription::new(),
             module,
+            unwind_context,
         }
     }
 }
@@ -93,8 +100,7 @@ impl JIT {
         // available).
         self.module.finalize_definitions().unwrap();
 
-        let mut unwind_context = crate::unwind::UnwindContext::new();
-        unwind_context.register_function(&mut self.module, id, &self.ctx);
+        self.unwind_context.register_function(&mut self.module, id, &self.ctx);
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
