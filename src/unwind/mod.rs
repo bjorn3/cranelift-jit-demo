@@ -8,8 +8,7 @@ mod unwind_gcc;
 use cranelift::codegen::Context;
 use cranelift_jit::JITModule;
 use cranelift_module::FuncId;
-pub(crate) use emit::DebugRelocName;
-pub(crate) use unwind::{LandingpadStrategy, UnwindContext};
+pub use unwind::EhFrameUnwinder;
 
 // FIXME add non-eh_frame based unwinder option
 

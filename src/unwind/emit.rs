@@ -5,7 +5,7 @@ use cranelift_module::{DataId, FuncId, FuncOrDataId, Module};
 use gimli::write::{Address, EndianVec, Result, Writer};
 use gimli::{RunTimeEndian, SectionId};
 
-use crate::unwind::LandingpadStrategy;
+use crate::unwind::unwind::LandingpadStrategy;
 
 pub(super) fn address_for_func(func_id: FuncId) -> Address {
     let symbol = func_id.as_u32();
@@ -73,8 +73,8 @@ impl WriterRelocate {
         for reloc in self.relocs.drain(..) {
             assert!(reloc.kind == object::RelocationKind::Absolute);
             match reloc.name {
-                super::DebugRelocName::Section(_) => unreachable!(),
-                super::DebugRelocName::Symbol(sym) => {
+                DebugRelocName::Section(_) => unreachable!(),
+                DebugRelocName::Symbol(sym) => {
                     let addr = if Some(sym) == eh_personality_sym {
                         strategy.personality_addr()
                     } else if sym & 1 << 31 == 0 {

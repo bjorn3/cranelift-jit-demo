@@ -25,11 +25,11 @@ pub struct JIT {
     /// functions.
     module: JITModule,
 
-    pub unwind_context: Box<dyn Unwinder>,
+    pub unwinder: Box<dyn Unwinder>,
 }
 
-impl Default for JIT {
-    fn default() -> Self {
+impl JIT {
+    pub fn new(unwinder: Box<dyn Unwinder>) -> Self {
         let mut flag_builder = settings::builder();
         flag_builder.set("use_colocated_libcalls", "false").unwrap();
         flag_builder.set("is_pic", "false").unwrap();
@@ -41,12 +41,10 @@ impl Default for JIT {
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
-        let unwind_context = Box::new(crate::unwind::UnwindContext::new());
-
-        builder.symbol("__throw", unwind_context.throw_func() as *const u8);
+        builder.symbol("__throw", unwinder.throw_func() as *const u8);
         builder.symbol(
             "__resume_unwind",
-            unwind_context.resume_unwind_func() as *const u8,
+            unwinder.resume_unwind_func() as *const u8,
         );
 
         let module = JITModule::new(builder);
@@ -55,7 +53,7 @@ impl Default for JIT {
             ctx: module.make_context(),
             data_ctx: DataDescription::new(),
             module,
-            unwind_context,
+            unwinder,
         }
     }
 }
@@ -100,7 +98,8 @@ impl JIT {
         // available).
         self.module.finalize_definitions().unwrap();
 
-        self.unwind_context.register_function(&mut self.module, id, &self.ctx);
+        self.unwinder
+            .register_function(&mut self.module, id, &self.ctx);
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);

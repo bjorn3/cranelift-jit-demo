@@ -21,19 +21,25 @@ pub(crate) trait LandingpadStrategy {
     fn generate_lsda(&self, module: &mut dyn Module, func_id: FuncId, context: &Context) -> DataId;
 }
 
-pub(crate) struct UnwindContext {
+pub struct EhFrameUnwinder {
     strategy: Box<dyn LandingpadStrategy>,
 }
 
-impl UnwindContext {
-    pub(crate) fn new() -> Self {
-        let strategy = Box::new(FastLandingpadStrategy);
+impl EhFrameUnwinder {
+    pub fn new_gcc() -> Self {
+        EhFrameUnwinder {
+            strategy: Box::new(GccLandingpadStrategy),
+        }
+    }
 
-        UnwindContext { strategy }
+    pub fn new_fast() -> Self {
+        EhFrameUnwinder {
+            strategy: Box::new(FastLandingpadStrategy),
+        }
     }
 }
 
-unsafe impl Unwinder for UnwindContext {
+unsafe impl Unwinder for EhFrameUnwinder {
     fn register_function(
         &mut self,
         module: &mut cranelift_jit::JITModule,

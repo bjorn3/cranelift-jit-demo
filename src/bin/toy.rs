@@ -5,24 +5,38 @@ use cranelift_jit_demo::jit;
 
 fn main() {
     match (|| {
-        // Create the JIT instance, which manages all generated functions and data.
-        let mut jit = jit::JIT::default();
-        println!("the answer is: {}", run_foo(&mut jit)?);
-        println!(
-            "recursive_fib(10) = {}",
-            run_recursive_fib_code(&mut jit, 10)?
-        );
-        println!(
-            "iterative_fib(10) = {}",
-            run_iterative_fib_code(&mut jit, 10)?
-        );
-        println!("try_catch(1) = {}", run_try_catch(&mut jit, 1)?);
-        run_hello(&mut jit)?;
+        println!("With GCC personality:");
+        run_tests(jit::JIT::new(Box::new(
+            cranelift_jit_demo::unwind::EhFrameUnwinder::new_fast(),
+        )))?;
+        println!();
+
+        println!("With fast personality:");
+        run_tests(jit::JIT::new(Box::new(
+            cranelift_jit_demo::unwind::EhFrameUnwinder::new_fast(),
+        )))?;
+        println!();
+
         Ok::<(), String>(())
     })() {
         Ok(()) => {}
         Err(err) => println!("Error: {err}"),
     }
+}
+
+fn run_tests(mut jit: jit::JIT) -> Result<(), String> {
+    println!("the answer is: {}", run_foo(&mut jit)?);
+    println!(
+        "recursive_fib(10) = {}",
+        run_recursive_fib_code(&mut jit, 10)?
+    );
+    println!(
+        "iterative_fib(10) = {}",
+        run_iterative_fib_code(&mut jit, 10)?
+    );
+    println!("try_catch(1) = {}", run_try_catch(&mut jit, 1)?);
+    run_hello(&mut jit)?;
+    Ok::<(), String>(())
 }
 
 fn run_foo(jit: &mut jit::JIT) -> Result<usize, String> {
@@ -50,16 +64,13 @@ fn run_hello(jit: &mut jit::JIT) -> Result<usize, String> {
 unsafe fn run_code0(jit: &mut jit::JIT, code: &str) -> Result<usize, String> {
     let code_ptr = jit.compile(code)?;
     let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
-    Ok(jit.unwind_context.call_and_catch_unwind0(code_fn).unwrap())
+    Ok(jit.unwinder.call_and_catch_unwind0(code_fn).unwrap())
 }
 
 unsafe fn run_code1(jit: &mut jit::JIT, code: &str, input: usize) -> Result<usize, String> {
     let code_ptr = jit.compile(code)?;
     let code_fn = mem::transmute::<_, extern "C-unwind" fn(usize) -> usize>(code_ptr);
-    Ok(jit
-        .unwind_context
-        .call_and_catch_unwind1(code_fn, input)
-        .unwrap())
+    Ok(jit.unwinder.call_and_catch_unwind1(code_fn, input).unwrap())
 }
 
 unsafe fn run_code2(
@@ -71,7 +82,7 @@ unsafe fn run_code2(
     let code_ptr = jit.compile(code)?;
     let code_fn = mem::transmute::<_, extern "C-unwind" fn(usize, usize) -> usize>(code_ptr);
     Ok(jit
-        .unwind_context
+        .unwinder
         .call_and_catch_unwind2(code_fn, input0, input1)
         .unwrap())
 }

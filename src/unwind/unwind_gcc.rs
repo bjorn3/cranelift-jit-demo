@@ -6,9 +6,10 @@ use eh_frame_experiments::{
 use gimli::write::Address;
 use gimli::{Encoding, Format, RunTimeEndian};
 
+use crate::unwind::emit::DebugRelocName;
 use crate::unwind::unwind::LandingpadStrategy;
 use crate::unwind::{
-    DebugRelocName, _Unwind_Action, _Unwind_Context, _Unwind_Exception, _Unwind_Exception_Class,
+    _Unwind_Action, _Unwind_Context, _Unwind_Exception, _Unwind_Exception_Class,
     _Unwind_Reason_Code,
 };
 
