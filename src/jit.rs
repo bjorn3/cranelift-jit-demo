@@ -33,6 +33,7 @@ impl JIT {
         let mut flag_builder = settings::builder();
         flag_builder.set("use_colocated_libcalls", "false").unwrap();
         flag_builder.set("is_pic", "false").unwrap();
+        flag_builder.set("preserve_frame_pointers", "true").unwrap();
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
         });
@@ -84,6 +85,8 @@ impl JIT {
         // cannot finish relocations until all functions to be called are
         // defined. For this toy demo for now, we'll just finalize the
         // function below.
+        //self.ctx.want_disasm = true;
+        //println!("{name}: {}", self.ctx.func.display());
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|err| match err {
@@ -92,6 +95,7 @@ impl JIT {
                 }
                 err => err.to_string(),
             })?;
+        //println!("{}", self.ctx.compiled_code().unwrap().vcode.as_ref().unwrap());
 
         // Finalize the functions which we just defined, which resolves any
         // outstanding relocations (patching in addresses, now that they're
@@ -206,6 +210,7 @@ impl JIT {
             do_catch: false,
             variables,
             module: &mut self.module,
+            unwinder: &*self.unwinder,
         };
         for expr in stmts {
             trans.translate_expr(expr);
@@ -237,6 +242,7 @@ struct FunctionTranslator<'a> {
     do_catch: bool,
     variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
+    unwinder: &'a dyn Unwinder,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -430,10 +436,9 @@ impl<'a> FunctionTranslator<'a> {
         self.cleanup_block = old_cleanup_block;
 
         self.builder.switch_to_block(catch_block);
-        let exception_data =
-            self.builder
-                .ins()
-                .load(self.int, MemFlags::trusted(), exception_val, 32);
+        let exception_data = self
+            .unwinder
+            .get_exception_data(&mut self.builder, exception_val);
         let variable = self.variables.get(&exception).unwrap();
         self.builder.def_var(*variable, exception_data);
 

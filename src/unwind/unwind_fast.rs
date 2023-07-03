@@ -7,41 +7,8 @@ use crate::unwind::unwind::LandingpadStrategy;
 use crate::unwind::{
     _Unwind_Action, _Unwind_Context, _Unwind_Exception, _Unwind_Exception_Class, _Unwind_GetIP,
     _Unwind_GetLanguageSpecificData, _Unwind_Reason_Code, _Unwind_SetGR, _Unwind_SetIP,
+    UNWIND_DATA_REG,
 };
-
-// UNWIND_DATA_REG definitions copied from rust's personality function definition
-#[cfg(target_arch = "x86")]
-const UNWIND_DATA_REG: (i32, i32) = (0, 2); // EAX, EDX
-
-#[cfg(target_arch = "x86_64")]
-const UNWIND_DATA_REG: (i32, i32) = (0, 1); // RAX, RDX
-
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-const UNWIND_DATA_REG: (i32, i32) = (0, 1); // R0, R1 / X0, X1
-
-#[cfg(target_arch = "m68k")]
-const UNWIND_DATA_REG: (i32, i32) = (0, 1); // D0, D1
-
-#[cfg(any(target_arch = "mips", target_arch = "mips64"))]
-const UNWIND_DATA_REG: (i32, i32) = (4, 5); // A0, A1
-
-#[cfg(any(target_arch = "powerpc", target_arch = "powerpc64"))]
-const UNWIND_DATA_REG: (i32, i32) = (3, 4); // R3, R4 / X3, X4
-
-#[cfg(target_arch = "s390x")]
-const UNWIND_DATA_REG: (i32, i32) = (6, 7); // R6, R7
-
-#[cfg(any(target_arch = "sparc", target_arch = "sparc64"))]
-const UNWIND_DATA_REG: (i32, i32) = (24, 25); // I0, I1
-
-#[cfg(target_arch = "hexagon")]
-const UNWIND_DATA_REG: (i32, i32) = (0, 1); // R0, R1
-
-#[cfg(any(target_arch = "riscv64", target_arch = "riscv32"))]
-const UNWIND_DATA_REG: (i32, i32) = (10, 11); // x10, x11
-
-#[cfg(target_arch = "loongarch64")]
-const UNWIND_DATA_REG: (i32, i32) = (4, 5); // a0, a1
 
 const ENTRY_KIND_NO_CLEANUP: u8 = 1;
 const ENTRY_KIND_CLEANUP: u8 = 2;
@@ -66,8 +33,6 @@ impl LandingpadStrategy for FastLandingpadStrategy {
         lsda_data.extend(usize::to_ne_bytes(0)); // placeholder for function address
 
         for call_site in context.compiled_code().unwrap().buffer.call_sites() {
-            // FIXME create a custom format
-
             lsda_data.extend(u32::to_ne_bytes(call_site.ret_addr));
 
             match call_site.id.map(|id| id.bits()) {

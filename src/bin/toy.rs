@@ -17,6 +17,12 @@ fn main() {
         )))?;
         println!();
 
+        println!("With custom unwinder:");
+        run_tests(jit::JIT::new(Box::new(unsafe {
+            cranelift_jit_demo::unwind::CustomUnwinder::new()
+        })))?;
+        println!();
+
         Ok::<(), String>(())
     })() {
         Ok(()) => {}

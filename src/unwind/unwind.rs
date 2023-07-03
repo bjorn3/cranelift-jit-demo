@@ -4,6 +4,7 @@ use cranelift::codegen::ir::{types, AbiParam, Signature};
 use cranelift::codegen::isa::unwind::UnwindInfo;
 use cranelift::codegen::Context;
 
+use cranelift::prelude::{FunctionBuilder, Value, MemFlags, InstBuilder};
 use cranelift_module::{DataId, FuncId, Linkage, Module};
 
 use gimli::write::{EhFrame, FrameTable};
@@ -189,6 +190,12 @@ unsafe impl Unwinder for EhFrameUnwinder {
         std::panic::catch_unwind(|| func(arg0, arg1)).map_err(|_err| {
             todo!("get exception data");
         })
+    }
+
+    fn get_exception_data(&self, builder: &mut FunctionBuilder, exception_val: Value) -> Value {
+        builder
+            .ins()
+            .load(types::I64, MemFlags::trusted(), exception_val, 32)
     }
 
     fn throw_func(&self) -> unsafe extern "C-unwind" fn(exception: usize) -> ! {
