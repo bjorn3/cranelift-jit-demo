@@ -17,11 +17,11 @@ pub(crate) struct GccLandingpadStrategy;
 
 impl LandingpadStrategy for GccLandingpadStrategy {
     fn personality_name(&self) -> &str {
-        "__jit_eh_personality"
+        "__gcc_eh_personality"
     }
 
     fn personality_addr(&self) -> *const u8 {
-        jit_eh_personality as *const u8
+        gcc_eh_personality as *const u8
     }
 
     fn generate_lsda(
@@ -127,7 +127,7 @@ extern "C" {
     ) -> _Unwind_Reason_Code;
 }
 
-unsafe extern "C" fn jit_eh_personality(
+unsafe extern "C" fn gcc_eh_personality(
     version: i32,
     actions: _Unwind_Action,
     exception_class: _Unwind_Exception_Class,

@@ -8,7 +8,7 @@ fn main() {
     match (|| {
         println!("With GCC personality:");
         run_tests(jit::JIT::new(Box::new(
-            cranelift_jit_demo::unwind::EhFrameUnwinder::new_fast(),
+            cranelift_jit_demo::unwind::EhFrameUnwinder::new_gcc(),
         )))?;
         println!();
 
