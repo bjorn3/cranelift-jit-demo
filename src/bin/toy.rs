@@ -6,22 +6,26 @@ use std::time::Instant;
 
 fn main() {
     match (|| {
+        println!("Without unwinder:");
+        run_tests(jit::JIT::new(None))?;
+        println!();
+
         println!("With GCC personality:");
-        run_tests(jit::JIT::new(Box::new(
+        run_tests(jit::JIT::new(Some(Box::new(
             cranelift_jit_demo::unwind::EhFrameUnwinder::new_gcc(),
-        )))?;
+        ))))?;
         println!();
 
         println!("With fast personality:");
-        run_tests(jit::JIT::new(Box::new(
+        run_tests(jit::JIT::new(Some(Box::new(
             cranelift_jit_demo::unwind::EhFrameUnwinder::new_fast(),
-        )))?;
+        ))))?;
         println!();
 
         println!("With custom unwinder:");
-        run_tests(jit::JIT::new(Box::new(unsafe {
+        run_tests(jit::JIT::new(Some(Box::new(unsafe {
             cranelift_jit_demo::unwind::CustomUnwinder::new()
-        })))?;
+        }))))?;
         println!();
 
         Ok::<(), String>(())
@@ -64,6 +68,10 @@ fn run_iterative_fib_code(jit: &mut jit::JIT, input: usize) -> Result<usize, Str
 }
 
 fn run_try_catch(jit: &mut jit::JIT, input: usize) -> Result<usize, String> {
+    if jit.unwinder.is_none() {
+        return Ok(0);
+    }
+
     jit.compile(DO_THROW_CODE)?;
     unsafe { run_code1(jit, TRY_CATCH_CODE, input) }
 }
@@ -81,7 +89,11 @@ fn bench_call(jit: &mut jit::JIT) -> Result<(), String> {
         let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
 
         let start = Instant::now();
-        jit.unwinder.call_and_catch_unwind0(code_fn).unwrap();
+        if let Some(unwinder) = &jit.unwinder {
+            unwinder.call_and_catch_unwind0(code_fn).unwrap();
+        } else {
+            code_fn();
+        }
         println!("100_000_000 calls took {:?}", start.elapsed());
 
         Ok(())
@@ -89,12 +101,20 @@ fn bench_call(jit: &mut jit::JIT) -> Result<(), String> {
 }
 
 fn bench_throw_single_unwind(jit: &mut jit::JIT) -> Result<(), String> {
+    if jit.unwinder.is_none() {
+        return Ok(());
+    }
+
     unsafe {
         let code_ptr = jit.compile(BENCH_THROW_SINGLE_UNWIND_CODE)?;
         let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
 
         let start = Instant::now();
-        jit.unwinder.call_and_catch_unwind0(code_fn).unwrap();
+        jit.unwinder
+            .as_ref()
+            .unwrap()
+            .call_and_catch_unwind0(code_fn)
+            .unwrap();
         println!(
             "100_000 throws unwinding a single frame took {:?}",
             start.elapsed()
@@ -105,14 +125,25 @@ fn bench_throw_single_unwind(jit: &mut jit::JIT) -> Result<(), String> {
 }
 
 fn bench_throw_many_unwind(jit: &mut jit::JIT) -> Result<(), String> {
+    if jit.unwinder.is_none() {
+        return Ok(());
+    }
+
     unsafe {
         jit.compile(THROW_MANY_UNWIND_CODE)?;
         let code_ptr = jit.compile(BENCH_THROW_MANY_UNWIND_CODE)?;
         let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
 
         let start = Instant::now();
-        let _ = jit.unwinder.call_and_catch_unwind0(code_fn);
-        println!("1000 throws unwinding a 1000 frames took {:?}", start.elapsed());
+        let _ = jit
+            .unwinder
+            .as_ref()
+            .unwrap()
+            .call_and_catch_unwind0(code_fn);
+        println!(
+            "1000 throws unwinding a 1000 frames took {:?}",
+            start.elapsed()
+        );
 
         Ok(())
     }
@@ -121,13 +152,21 @@ fn bench_throw_many_unwind(jit: &mut jit::JIT) -> Result<(), String> {
 unsafe fn run_code0(jit: &mut jit::JIT, code: &str) -> Result<usize, String> {
     let code_ptr = jit.compile(code)?;
     let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
-    Ok(jit.unwinder.call_and_catch_unwind0(code_fn).unwrap())
+    Ok(if let Some(unwinder) = &jit.unwinder {
+        unwinder.call_and_catch_unwind0(code_fn).unwrap()
+    } else {
+        code_fn()
+    })
 }
 
 unsafe fn run_code1(jit: &mut jit::JIT, code: &str, input: usize) -> Result<usize, String> {
     let code_ptr = jit.compile(code)?;
     let code_fn = mem::transmute::<_, extern "C-unwind" fn(usize) -> usize>(code_ptr);
-    Ok(jit.unwinder.call_and_catch_unwind1(code_fn, input).unwrap())
+    Ok(if let Some(unwinder) = &jit.unwinder {
+        unwinder.call_and_catch_unwind1(code_fn, input).unwrap()
+    } else {
+        code_fn(input)
+    })
 }
 
 unsafe fn run_code2(
@@ -138,10 +177,13 @@ unsafe fn run_code2(
 ) -> Result<usize, String> {
     let code_ptr = jit.compile(code)?;
     let code_fn = mem::transmute::<_, extern "C-unwind" fn(usize, usize) -> usize>(code_ptr);
-    Ok(jit
-        .unwinder
-        .call_and_catch_unwind2(code_fn, input0, input1)
-        .unwrap())
+    Ok(if let Some(unwinder) = &jit.unwinder {
+        unwinder
+            .call_and_catch_unwind2(code_fn, input0, input1)
+            .unwrap()
+    } else {
+        code_fn(input0, input1)
+    })
 }
 
 // A small test function.
