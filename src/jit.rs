@@ -621,6 +621,15 @@ fn declare_variables_in_stmt(
                 declare_variables_in_stmt(int, builder, variables, index, stmt);
             }
         }
+        Expr::TryFinally(ref try_body, ref cleanup_body) => {
+            for stmt in try_body {
+                declare_variables_in_stmt(int, builder, variables, index, stmt);
+            }
+
+            for stmt in cleanup_body {
+                declare_variables_in_stmt(int, builder, variables, index, stmt);
+            }
+        }
         _ => (),
     }
 }
