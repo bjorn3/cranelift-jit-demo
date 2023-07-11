@@ -2,6 +2,7 @@
 
 use core::mem;
 use cranelift_jit_demo::jit;
+use std::time::Instant;
 
 fn main() {
     match (|| {
@@ -42,6 +43,10 @@ fn run_tests(mut jit: jit::JIT) -> Result<(), String> {
     );
     println!("try_catch(1) = {}", run_try_catch(&mut jit, 1)?);
     run_hello(&mut jit)?;
+
+    bench_call(&mut jit)?;
+    bench_throw_single_unwind(&mut jit)?;
+
     Ok::<(), String>(())
 }
 
@@ -65,6 +70,34 @@ fn run_try_catch(jit: &mut jit::JIT, input: usize) -> Result<usize, String> {
 fn run_hello(jit: &mut jit::JIT) -> Result<usize, String> {
     jit.create_data("hello_string", "hello world!\0".as_bytes().to_vec())?;
     unsafe { run_code0(jit, HELLO_CODE) }
+}
+
+fn bench_call(jit: &mut jit::JIT) -> Result<(), String> {
+    unsafe {
+        jit.compile(NOP_FUNC_CODE)?;
+
+        let code_ptr = jit.compile(BENCH_CALL_CODE)?;
+        let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
+
+        let start = Instant::now();
+        jit.unwinder.call_and_catch_unwind0(code_fn).unwrap();
+        println!("100_000_000 calls took {:?}", start.elapsed());
+
+        Ok(())
+    }
+}
+
+fn bench_throw_single_unwind(jit: &mut jit::JIT) -> Result<(), String> {
+    unsafe {
+        let code_ptr = jit.compile(BENCH_THROW_SINGLE_UNWIND_CODE)?;
+        let code_fn = mem::transmute::<_, extern "C-unwind" fn() -> usize>(code_ptr);
+
+        let start = Instant::now();
+        jit.unwinder.call_and_catch_unwind0(code_fn).unwrap();
+        println!("100_000 throws unwinding a single frame took {:?}", start.elapsed());
+
+        Ok(())
+    }
 }
 
 unsafe fn run_code0(jit: &mut jit::JIT, code: &str) -> Result<usize, String> {
@@ -175,4 +208,34 @@ const HELLO_CODE: &str = r#"
 fn hello() -> (r) {
     puts(&hello_string)
 }
+"#;
+
+const NOP_FUNC_CODE: &str = r#"
+    fn nop() -> (r) {
+        r = 0
+    }
+"#;
+
+const BENCH_CALL_CODE: &str = r#"
+    fn bench_call() -> (r) {
+        n = 100000000
+        while n != 0 {
+            nop()
+            n = n - 1
+        }
+    }
+"#;
+
+const BENCH_THROW_SINGLE_UNWIND_CODE: &str = r#"
+    fn bench_throw_single_unwind() -> (r) {
+        n = 100000
+        while n != 0 {
+            try {
+                do_throw()
+            } catch e {
+                a = 0
+            }
+            n = n - 1
+        }
+    }
 "#;

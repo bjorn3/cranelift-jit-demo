@@ -6,8 +6,8 @@ mod unwind_custom;
 mod unwind_fast;
 mod unwind_gcc;
 
-use cranelift::codegen::Context;
 use cranelift::codegen::ir::Value;
+use cranelift::codegen::Context;
 use cranelift::prelude::FunctionBuilder;
 use cranelift_jit::JITModule;
 use cranelift_module::FuncId;
@@ -42,7 +42,6 @@ pub unsafe trait Unwinder {
     ) -> unsafe extern "C-unwind" fn(exception: *mut _Unwind_Exception) -> !;
 }
 
-
 // UNWIND_DATA_REG definitions copied from rust's personality function definition
 #[cfg(target_arch = "x86")]
 const UNWIND_DATA_REG: (i32, i32) = (0, 2); // EAX, EDX
@@ -76,7 +75,6 @@ const UNWIND_DATA_REG: (i32, i32) = (10, 11); // x10, x11
 
 #[cfg(target_arch = "loongarch64")]
 const UNWIND_DATA_REG: (i32, i32) = (4, 5); // a0, a1
-
 
 #[allow(non_camel_case_types)]
 type _Unwind_Exception_Class = u64;

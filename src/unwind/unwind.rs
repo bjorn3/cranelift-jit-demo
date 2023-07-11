@@ -4,7 +4,7 @@ use cranelift::codegen::ir::{types, AbiParam, Signature};
 use cranelift::codegen::isa::unwind::UnwindInfo;
 use cranelift::codegen::Context;
 
-use cranelift::prelude::{FunctionBuilder, Value, MemFlags, InstBuilder};
+use cranelift::prelude::{FunctionBuilder, InstBuilder, MemFlags, Value};
 use cranelift_module::{DataId, FuncId, Linkage, Module};
 
 use gimli::write::{EhFrame, FrameTable};
