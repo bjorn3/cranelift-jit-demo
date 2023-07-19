@@ -36,18 +36,23 @@ fn main() {
 }
 
 fn run_tests(mut jit: jit::JIT) -> Result<(), String> {
-    println!("the answer is: {}", run_foo(&mut jit)?);
-    println!(
-        "recursive_fib(10) = {}",
-        run_recursive_fib_code(&mut jit, 10)?
-    );
-    println!(
-        "iterative_fib(10) = {}",
-        run_iterative_fib_code(&mut jit, 10)?
-    );
-    println!("try_catch(1) = {}", run_try_catch(&mut jit, 1)?);
-    run_hello(&mut jit)?;
+    if false {
+        println!("the answer is: {}", run_foo(&mut jit)?);
+        println!(
+            "recursive_fib(10) = {}",
+            run_recursive_fib_code(&mut jit, 10)?
+        );
+        println!(
+            "iterative_fib(10) = {}",
+            run_iterative_fib_code(&mut jit, 10)?
+        );
+        println!("try_catch(1) = {}", run_try_catch(&mut jit, 1)?);
+        run_hello(&mut jit)?;
+    }
 
+    if jit.unwinder.is_some() {
+        jit.compile(DO_THROW_CODE)?;
+    }
     bench_call(&mut jit)?;
     bench_throw_single_unwind(&mut jit)?;
     bench_throw_many_unwind(&mut jit)?;
